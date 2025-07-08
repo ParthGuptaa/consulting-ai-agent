@@ -1,4 +1,4 @@
-# app.py (Version 3.0 - The Multi-Modal Agent)
+# app.py (Version 3.2 - The Tenacious Researcher)
 
 import streamlit as st
 import pandas as pd
@@ -7,9 +7,9 @@ import requests
 from bs4 import BeautifulSoup
 from tavily import TavilyClient
 import os
-from PIL import Image
-from io import BytesIO
 import urllib.parse
+from io import BytesIO
+from PIL import Image
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -19,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS FOR "GEN-Z" UI ---
+# --- CUSTOM CSS ---
 def load_css():
     st.markdown("""
     <style>
@@ -49,6 +49,24 @@ except Exception as e:
 
 # --- AGENT'S TOOLS (BACKEND FUNCTIONS) ---
 
+# NEW: Tool to brainstorm better search queries
+def generate_search_queries(topic, data_point, status_placeholder):
+    status_placeholder.write(f"   ↳ 🤔 Brainstorming search angles for: '{data_point}'")
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = f"""
+        You are a research assistant. For the main topic "{topic}", I need to find information about "{data_point}".
+        Generate 3 diverse and effective Google search queries to find this information.
+        Format your response as a Python list of strings. For example: ["query 1", "query 2", "query 3"]
+        """
+        response = model.generate_content(prompt)
+        # A simple way to parse the string response into a list
+        queries = eval(response.text)
+        return queries
+    except Exception:
+        # Fallback to a basic query if generation fails
+        return [f"{topic} {data_point}"]
+
 def perform_search(query, use_elite_sources=False, max_results=3):
     search_query = query
     if use_elite_sources:
@@ -73,53 +91,12 @@ def scrape_and_extract(url, information_to_extract, status_placeholder):
     except Exception:
         return "Extraction Failed"
 
-# --- TEMPORARY "DRY RUN" FUNCTION - PASTE THIS OVER THE EXISTING find_relevant_images FUNCTION ---
-
-def find_relevant_images(url, topic, status_placeholder, debug_mode=False):
-    status_placeholder.write(f"   ↳ 🖼️ [DRY RUN] Scanning for visuals at {url[:70]}...")
-    if debug_mode:
-        st.session_state.debug_log.append(f"--- [DRY RUN] Scanning {url} for visuals ---")
-    
-    relevant_images = []
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        images = soup.find_all('img')
-        
-        if not images and debug_mode:
-            st.session_state.debug_log.append("No <img> tags found on this page.")
-
-        for img in images[:10]: # Check up to 10 images
-            img_url = img.get('src')
-            if not img_url: continue
-            
-            # Make sure URL is absolute
-            img_url = urllib.parse.urljoin(url, img_url)
-            
-            # In Dry Run, we just log that we found it.
-            if debug_mode:
-                st.session_state.debug_log.append(f"Found potential image URL: {img_url}")
-            
-            # We skip the entire analysis part to save API calls.
-            # relevant_images.append(img_url) # We can even comment this out to ensure no images are shown.
-            
-    except Exception as e:
-        if debug_mode:
-            st.session_state.debug_log.append(f"Could not scan page {url}. Reason: {e}")
-        return []
-    
-    if debug_mode:
-         st.session_state.debug_log.append(f"--- [DRY RUN] Finished scanning {url}. Found {len(images)} total image tags. ---")
-    
-    return relevant_images # This will return an empty list, which is expected in a dry run.
-
 def generate_elaborate_summary(data_df, research_topic):
     # This function remains the same
     try:
         data_string = data_df.to_string(index=False)
         model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = f"""As a Principal Consultant, synthesize the following data for "{research_topic}" into a summary with three sections: Key Insights, Potential Implications, and Identified Gaps & Next Steps. Use bullet points for each. Base your analysis *only* on the data provided. Data: --- {data_string} ---"""
+        prompt = f"""As a Principal Consultant, synthesize the data for "{research_topic}" into a summary with: Key Insights, Potential Implications, and Identified Gaps. Use bullet points. Base your analysis *only* on the data. Data: --- {data_string} ---"""
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
@@ -128,12 +105,12 @@ def generate_elaborate_summary(data_df, research_topic):
 # --- FRONT-END UI (STREAMLIT) ---
 
 st.sidebar.header("✨ CogniSynth AI")
-st.sidebar.markdown("_Your Multi-Modal AI Partner_")
+st.sidebar.markdown("_Your AI Consulting Partner_")
 
 with st.sidebar.form("research_form"):
-    topic = st.text_input("🎯 **Research Topic**", "The impact of AI on the global banking sector")
+    topic = st.text_input("🎯 **Research Topic**", "AI adoption in the Australian retail sector")
     data_points_text = st.text_area("📋 **Key Questions / Data Points** (one per line)", 
-                                    "Projected market size of AI in banking by 2030\nKey areas of AI adoption (e.g., fraud detection, customer service)\nMain challenges for AI implementation in banks\nRegulatory hurdles for AI in finance",
+                                    "Projected market size of AI in retail by 2027\nKey examples of AI use cases in customer experience\nMain challenges for AI implementation for SMB retailers\nStatistics on consumer sentiment towards AI in retail",
                                     height=150)
     
     use_elite_sources = st.toggle("🔎 Prioritize elite consulting sources?", value=True)
@@ -151,28 +128,35 @@ if submitted:
         status_placeholder = st.empty()
         
         results_list = []
-        all_visuals = []
+        # We are keeping the image functionality out for now as per user request
+        # all_visuals = []
 
         with st.spinner('Agent is working... This may take a few minutes.'):
             for i, point in enumerate(data_points_to_find):
-                status_placeholder.text(f"({i+1}/{len(data_points_to_find)}) 🔎 Searching for: '{point}'")
-                search_results = perform_search(f"{topic} {point}", use_elite_sources)
+                status_placeholder.text(f"({i+1}/{len(data_points_to_find)}) Starting research for: '{point}'")
                 
-                found_info = False
-                if isinstance(search_results, list) and search_results:
-                    for result in search_results:
-                        url = result['url']
-                        extracted_info = scrape_and_extract(url, point, status_placeholder)
-                        
-                        if "Information Not Found" not in extracted_info and "Extraction Failed" not in extracted_info:
-                            results_list.append({"Data Point": point, "Finding": extracted_info, "Source URL": url})
-                            # Now, look for images on this successful source
-                            visuals = find_relevant_images(url, topic, status_placeholder)
-                            all_visuals.extend(visuals)
-                            found_info = True
-                            break
+                # NEW: Generate multiple search queries
+                search_queries = generate_search_queries(topic, point, status_placeholder)
+                status_placeholder.write(f"   ↳ Generated queries: {search_queries}")
                 
-                if not found_info:
+                found_info_for_point = False
+                for query in search_queries:
+                    if found_info_for_point: break
+                    
+                    status_placeholder.write(f"   ↳ 🔎 Searching with query: '{query}'")
+                    search_results = perform_search(query, use_elite_sources)
+                    
+                    if isinstance(search_results, list) and search_results:
+                        for result in search_results:
+                            url = result['url']
+                            extracted_info = scrape_and_extract(url, point, status_placeholder)
+                            
+                            if "Information Not Found" not in extracted_info and "Extraction Failed" not in extracted_info:
+                                results_list.append({"Data Point": point, "Finding": extracted_info, "Source URL": url})
+                                found_info_for_point = True
+                                break # Stop searching for this point once we've found it
+                
+                if not found_info_for_point:
                     results_list.append({"Data Point": point, "Finding": "Could not find in top search results", "Source URL": "N/A"})
         
         status_placeholder.empty()
@@ -185,17 +169,10 @@ if submitted:
         with st.spinner('💡 Generating strategic summary...'):
             summary = generate_elaborate_summary(results_df, topic)
             st.markdown(summary)
-
-        if all_visuals:
-            st.subheader("📊 Relevant Charts & Graphs")
-            unique_visuals = list(set(all_visuals)) # Remove duplicate images
-            cols = st.columns(len(unique_visuals) if len(unique_visuals) < 4 else 3)
-            for i, visual_url in enumerate(unique_visuals):
-                with cols[i % 3]:
-                    st.image(visual_url, caption=f"Source: {visual_url[:50]}...", use_column_width=True)
         
         st.subheader("📋 Raw Findings")
         st.markdown("Here is the raw data collected by the agent.")
-        st.data_editor(results_df, use_container_width=True, height=210) # Reduced height
+        st.data_editor(results_df, use_container_width=True, height=280)
+
 else:
     st.markdown("Enter your research topic and key questions in the sidebar to begin.")
