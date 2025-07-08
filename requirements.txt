@@ -4,3 +4,4 @@ tavily-python
 beautifulsoup4
 pandas
 openpyxl
+Pillow
