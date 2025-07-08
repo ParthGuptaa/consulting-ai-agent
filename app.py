@@ -73,9 +73,13 @@ def scrape_and_extract(url, information_to_extract, status_placeholder):
     except Exception:
         return "Extraction Failed"
 
-# NEW: Tool to find and validate relevant images
-def find_relevant_images(url, topic, status_placeholder):
-    status_placeholder.write(f"   ↳ 🖼️ Scanning for visuals at {url[:70]}...")
+# --- TEMPORARY "DRY RUN" FUNCTION - PASTE THIS OVER THE EXISTING find_relevant_images FUNCTION ---
+
+def find_relevant_images(url, topic, status_placeholder, debug_mode=False):
+    status_placeholder.write(f"   ↳ 🖼️ [DRY RUN] Scanning for visuals at {url[:70]}...")
+    if debug_mode:
+        st.session_state.debug_log.append(f"--- [DRY RUN] Scanning {url} for visuals ---")
+    
     relevant_images = []
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -83,40 +87,32 @@ def find_relevant_images(url, topic, status_placeholder):
         soup = BeautifulSoup(response.content, 'html.parser')
         images = soup.find_all('img')
         
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        for img in images[:5]: # Limit to first 5 images to be efficient
+        if not images and debug_mode:
+            st.session_state.debug_log.append("No <img> tags found on this page.")
+
+        for img in images[:10]: # Check up to 10 images
             img_url = img.get('src')
-            if not img_url:
-                continue
+            if not img_url: continue
             
             # Make sure URL is absolute
             img_url = urllib.parse.urljoin(url, img_url)
             
-            try:
-                # Get image bytes
-                img_response = requests.get(img_url, stream=True, timeout=5)
-                img_response.raise_for_status()
-                img_bytes = img_response.content
-                image = Image.open(BytesIO(img_bytes))
-
-                # Use Gemini 1.5 Flash to analyze the image
-                prompt = [
-                    f"Is this image a relevant chart, graph, or data visualization for the topic: '{topic}'? Answer with only 'Yes' or 'No'.",
-                    image
-                ]
-                response = model.generate_content(prompt)
-                
-                if 'yes' in response.text.lower():
-                    relevant_images.append(img_url)
-                    status_placeholder.write(f"   ↳ ✅ Found relevant visual: {img_url}")
-                    if len(relevant_images) >= 2: # Stop after finding 2 relevant images per source
-                        break
-            except Exception:
-                continue # Skip if image is broken or inaccessible
-    except Exception:
+            # In Dry Run, we just log that we found it.
+            if debug_mode:
+                st.session_state.debug_log.append(f"Found potential image URL: {img_url}")
+            
+            # We skip the entire analysis part to save API calls.
+            # relevant_images.append(img_url) # We can even comment this out to ensure no images are shown.
+            
+    except Exception as e:
+        if debug_mode:
+            st.session_state.debug_log.append(f"Could not scan page {url}. Reason: {e}")
         return []
-    return relevant_images
+    
+    if debug_mode:
+         st.session_state.debug_log.append(f"--- [DRY RUN] Finished scanning {url}. Found {len(images)} total image tags. ---")
+    
+    return relevant_images # This will return an empty list, which is expected in a dry run.
 
 def generate_elaborate_summary(data_df, research_topic):
     # This function remains the same
